@@ -1,0 +1,9 @@
+customer_id,email,age,spend,status,created_at
+C001,a@example.com,32,1200,active,2026-09-14
+C002,b@example.com,41,850,active,2026-09-14
+C003,,29,-20,active,2026-09-14
+C004,d@example.com,145,640,paused,2026-09-14
+C004,e@example.com,38,720,active,2026-09-14
+C005,f@example.com,27,310,active,2026-09-14
+C006,g@example.com,36,440,active,2026-09-14
+C007,h@example.com,52,920,active,2026-09-14
