@@ -1,0 +1,46 @@
+CREATE TYPE "MemberRole" AS ENUM ('OWNER','ADMIN','ENGINEER','ANALYST','VIEWER');
+CREATE TYPE "SourceType" AS ENUM ('FILE','API','POSTGRES','MYSQL','OTHER');
+CREATE TYPE "RunStatus" AS ENUM ('RUNNING','PASSED','FAILED');
+CREATE TYPE "Severity" AS ENUM ('LOW','MEDIUM','HIGH','CRITICAL');
+CREATE TYPE "IncidentStatus" AS ENUM ('OPEN','ACKNOWLEDGED','INVESTIGATING','RESOLVED','REOPENED');
+CREATE TYPE "RuleType" AS ENUM ('NOT_NULL','UNIQUE','RANGE','REGEX','ALLOWED_VALUES','CUSTOM');
+
+CREATE TABLE "Organization" ("id" TEXT NOT NULL,"name" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "Organization_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Workspace" ("id" TEXT NOT NULL,"organizationId" TEXT NOT NULL,"name" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "Workspace_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "WorkspaceMember" ("id" TEXT NOT NULL,"workspaceId" TEXT NOT NULL,"email" TEXT NOT NULL,"name" TEXT,"role" "MemberRole" NOT NULL DEFAULT 'ANALYST',"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "WorkspaceMember_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "DataSource" ("id" TEXT NOT NULL,"workspaceId" TEXT NOT NULL,"name" TEXT NOT NULL,"type" "SourceType" NOT NULL,"config" JSONB,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "DataSource_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Dataset" ("id" TEXT NOT NULL,"workspaceId" TEXT NOT NULL,"sourceId" TEXT,"name" TEXT NOT NULL,"schemaHash" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL,CONSTRAINT "Dataset_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "QualityRule" ("id" TEXT NOT NULL,"datasetId" TEXT NOT NULL,"column" TEXT NOT NULL,"type" "RuleType" NOT NULL,"config" JSONB,"enabled" BOOLEAN NOT NULL DEFAULT true,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "QualityRule_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "IngestionRun" ("id" TEXT NOT NULL,"datasetId" TEXT NOT NULL,"startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"finishedAt" TIMESTAMP(3),"status" "RunStatus" NOT NULL DEFAULT 'RUNNING',"rowCount" INTEGER NOT NULL DEFAULT 0,"columnCount" INTEGER NOT NULL DEFAULT 0,"qualityScore" DOUBLE PRECISION,"schemaHash" TEXT,"volumeDelta" DOUBLE PRECISION,"summary" JSONB,CONSTRAINT "IngestionRun_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "QualityResult" ("id" TEXT NOT NULL,"runId" TEXT NOT NULL,"ruleId" TEXT NOT NULL,"passed" BOOLEAN NOT NULL,"failed" INTEGER NOT NULL DEFAULT 0,"total" INTEGER NOT NULL DEFAULT 0,"evidence" JSONB,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "QualityResult_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Incident" ("id" TEXT NOT NULL,"datasetId" TEXT NOT NULL,"runId" TEXT NOT NULL,"ruleId" TEXT,"severity" "Severity" NOT NULL,"status" "IncidentStatus" NOT NULL DEFAULT 'OPEN',"title" TEXT NOT NULL,"message" TEXT NOT NULL,"evidence" JSONB,"openedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"resolvedAt" TIMESTAMP(3),CONSTRAINT "Incident_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "AIInvestigation" ("id" TEXT NOT NULL,"incidentId" TEXT NOT NULL,"provider" TEXT NOT NULL,"model" TEXT,"headline" TEXT,"cause" TEXT,"evidence" JSONB,"nextSteps" JSONB,"confidence" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "AIInvestigation_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "AuditLog" ("id" TEXT NOT NULL,"workspaceId" TEXT NOT NULL,"action" TEXT NOT NULL,"actorEmail" TEXT,"entityType" TEXT NOT NULL,"entityId" TEXT,"metadata" JSONB,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id"));
+
+CREATE UNIQUE INDEX "WorkspaceMember_workspaceId_email_key" ON "WorkspaceMember"("workspaceId","email");
+CREATE INDEX "Workspace_organizationId_idx" ON "Workspace"("organizationId");
+CREATE INDEX "WorkspaceMember_workspaceId_idx" ON "WorkspaceMember"("workspaceId");
+CREATE INDEX "DataSource_workspaceId_idx" ON "DataSource"("workspaceId");
+CREATE INDEX "Dataset_workspaceId_idx" ON "Dataset"("workspaceId");
+CREATE INDEX "Dataset_sourceId_idx" ON "Dataset"("sourceId");
+CREATE INDEX "QualityRule_datasetId_idx" ON "QualityRule"("datasetId");
+CREATE INDEX "IngestionRun_datasetId_startedAt_idx" ON "IngestionRun"("datasetId","startedAt");
+CREATE INDEX "QualityResult_runId_idx" ON "QualityResult"("runId");
+CREATE INDEX "Incident_datasetId_status_idx" ON "Incident"("datasetId","status");
+CREATE INDEX "AIInvestigation_incidentId_createdAt_idx" ON "AIInvestigation"("incidentId","createdAt");
+CREATE INDEX "AuditLog_workspaceId_createdAt_idx" ON "AuditLog"("workspaceId","createdAt");
+
+ALTER TABLE "Workspace" ADD CONSTRAINT "Workspace_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "WorkspaceMember" ADD CONSTRAINT "WorkspaceMember_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "DataSource" ADD CONSTRAINT "DataSource_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Dataset" ADD CONSTRAINT "Dataset_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Dataset" ADD CONSTRAINT "Dataset_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "DataSource"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "QualityRule" ADD CONSTRAINT "QualityRule_datasetId_fkey" FOREIGN KEY ("datasetId") REFERENCES "Dataset"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "IngestionRun" ADD CONSTRAINT "IngestionRun_datasetId_fkey" FOREIGN KEY ("datasetId") REFERENCES "Dataset"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "QualityResult" ADD CONSTRAINT "QualityResult_runId_fkey" FOREIGN KEY ("runId") REFERENCES "IngestionRun"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "QualityResult" ADD CONSTRAINT "QualityResult_ruleId_fkey" FOREIGN KEY ("ruleId") REFERENCES "QualityRule"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Incident" ADD CONSTRAINT "Incident_datasetId_fkey" FOREIGN KEY ("datasetId") REFERENCES "Dataset"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Incident" ADD CONSTRAINT "Incident_runId_fkey" FOREIGN KEY ("runId") REFERENCES "IngestionRun"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Incident" ADD CONSTRAINT "Incident_ruleId_fkey" FOREIGN KEY ("ruleId") REFERENCES "QualityRule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "AIInvestigation" ADD CONSTRAINT "AIInvestigation_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
