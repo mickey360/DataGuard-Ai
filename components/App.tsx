@@ -2,7 +2,7 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {Activity,AlertTriangle,BarChart3,Database,FileCheck2,GitBranch,Layers3,Plus,ShieldCheck,Upload,Search,Settings,CheckCircle2,BrainCircuit,Clock3} from 'lucide-react';
 import {LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid} from 'recharts';
-import type {Analysis,Dataset,Rule} from '@/lib/types';
+import type {Analysis,Dataset,Rule} from '@/lib/types'; 
 const key='dataguard.datasets.v1';
 const sample=[{customer_id:'C001',email:'a@example.com',age:32,spend:1200,status:'active',created_at:'2026-09-14'},{customer_id:'C002',email:'b@example.com',age:41,spend:850,status:'active',created_at:'2026-09-14'},{customer_id:'C003',email:'',age:29,spend:-20,status:'active',created_at:'2026-09-14'},{customer_id:'C004',email:'d@example.com',age:145,spend:640,status:'paused',created_at:'2026-09-14'},{customer_id:'C004',email:'e@example.com',age:38,spend:720,status:'active',created_at:'2026-09-14'}];
 function uid(){return crypto.randomUUID()}
