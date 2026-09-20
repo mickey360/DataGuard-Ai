@@ -1,30 +1,1455 @@
 'use client';
-import React,{useEffect,useMemo,useState} from 'react';
-import {Activity,AlertTriangle,BarChart3,Database,FileCheck2,GitBranch,Layers3,Plus,ShieldCheck,Upload,Search,Settings,CheckCircle2,BrainCircuit,Clock3} from 'lucide-react';
-import {LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid} from 'recharts';
-import type {Analysis,Dataset,Rule} from '@/lib/types'; 
-const key='dataguard.datasets.v1';
-const sample=[{customer_id:'C001',email:'a@example.com',age:32,spend:1200,status:'active',created_at:'2026-09-14'},{customer_id:'C002',email:'b@example.com',age:41,spend:850,status:'active',created_at:'2026-09-14'},{customer_id:'C003',email:'',age:29,spend:-20,status:'active',created_at:'2026-09-14'},{customer_id:'C004',email:'d@example.com',age:145,spend:640,status:'paused',created_at:'2026-09-14'},{customer_id:'C004',email:'e@example.com',age:38,spend:720,status:'active',created_at:'2026-09-14'}];
-function uid(){return crypto.randomUUID()}
-function save(d:Dataset[]){localStorage.setItem(key,JSON.stringify(d))}
-function scoreClass(s:number){return s>=90?'ok':s>=70?'warn':'danger'}
-export default function App({mode='landing'}:{mode?:'landing'|'workspace'}){const[datasets,setDatasets]=useState<Dataset[]>([]);const[active,setActive]=useState('overview');const[selected,setSelected]=useState<string|null>(null);const[notice,setNotice]=useState('');const[selectedIssue,setSelectedIssue]=useState<string|null>(null);
-useEffect(()=>{try{const x=localStorage.getItem(key);if(x)setDatasets(JSON.parse(x))}catch{}},[]);if(mode==='landing')return <Landing/>;const ds=datasets.find(d=>d.id===selected)||datasets[0];
-const stats=useMemo(()=>{const runs=datasets.flatMap(d=>d.runs);return{sources:datasets.length,incidents:runs.reduce((n,r)=>n+r.issues.filter(i=>i.severity==='high'||i.severity==='critical').length,0),avg:runs.length?Math.round(runs.reduce((n,r)=>n+r.score,0)/runs.length):0}},[datasets]);
-function importRows(name:string,rows:Record<string,unknown>[],sourceType='File'){const d:Dataset={id:uid(),name,sourceType,createdAt:new Date().toISOString(),runs:[],rules:[]};fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({rows,rules:[]})}).then(r=>r.json()).then(({analysis,suggestedRules,error})=>{if(error)throw new Error(error);d.rules=suggestedRules;d.runs=[analysis];d.latest=analysis;const next=[...datasets,d];setDatasets(next);save(next);setSelected(d.id);setActive('dataset');setNotice(`Imported ${name}. ${analysis.rowCount.toLocaleString()} rows profiled.`)}).catch(e=>setNotice(e.message))}
-function loadSample(){importRows('customers_sample.csv',sample)}
-function file(e:React.ChangeEvent<HTMLInputElement>){const f=e.target.files?.[0];if(!f)return;const ext=f.name.split('.').pop()?.toLowerCase();const reader=new FileReader();reader.onload=async()=>{try{let rows:Record<string,unknown>[]=[];if(ext==='json')rows=JSON.parse(String(reader.result));else if(ext==='csv'){const text=String(reader.result);const lines=text.split(/\r?\n/).filter(Boolean);const headers=lines[0].split(',').map(x=>x.trim());rows=lines.slice(1).map(line=>{const vals=line.split(',');return Object.fromEntries(headers.map((h,i)=>[h,vals[i]?.trim()??'']))})}else{setNotice('For Excel, convert the sheet to CSV or JSON in this build environment. The XLSX dependency is included for the next ingestion adapter.');return}importRows(f.name,rows)}catch{setNotice('Could not parse that file. Check the format and try again.')}};reader.readAsText(f)}
-function rerun(){if(!ds?.latest)return;const rows=sample;fetch('/api/analyze',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({rows,rules:ds.rules})}).then(r=>r.json()).then(({analysis})=>{const updated={...ds,runs:[...ds.runs,analysis],latest:analysis};const next=datasets.map(x=>x.id===ds.id?updated:x);setDatasets(next);save(next);setNotice('New ingestion run completed. Historical comparison updated.')})}
-function addRule(){if(!ds)return;const r:Rule={id:uid(),column:ds.latest?.columns[0]?.name||'',type:'not_null',config:{},enabled:true};const updated={...ds,rules:[...ds.rules,r]};const next=datasets.map(x=>x.id===ds.id?updated:x);setDatasets(next);save(next)}
-return <div className="shell"><aside className="sidebar"><div className="brand"><div className="brandmark">DG</div><span>DataGuard AI</span></div><nav className="nav">{[['overview','Overview',BarChart3],['datasets','Datasets',Database],['incidents','Incidents',AlertTriangle],['lineage','Lineage',GitBranch],['rules','Quality rules',ShieldCheck],['activity','Activity',Activity]].map(([id,label,Icon])=><button key={id as string} className={active===id?'active':''} onClick={()=>setActive(id as string)}><Icon size={16}/><span>{label as string}</span></button>)}</nav><div className="workspace"><div className="small">WORKSPACE</div><b>Acme Data Team</b><div className="small muted">Local secure workspace</div></div></aside><main className="main"><div className="top"><div><div className="eyebrow">Data operations / production</div><h1 className="h1">{active==='overview'?'Data quality control center':active==='dataset'?(ds?.name||'Dataset'):active==='incidents'?'Incidents':active==='rules'?'Quality rules':active==='lineage'?'Data lineage':'Activity'}</h1></div><div className="row"><button className="btn" onClick={loadSample}><Plus size={15}/> Load demo dataset</button><label className="btn primary row"><Upload size={15}/> Import<input hidden type="file" accept=".csv,.json" onChange={file}/></label></div></div>{notice&&<div className="notice" style={{marginBottom:16}}>{notice}</div>}
-{active==='overview'&&<Overview stats={stats} datasets={datasets} setSelected={setSelected} setActive={setActive} loadSample={loadSample}/>} {active==='datasets'&&<Datasets datasets={datasets} setSelected={setSelected} setActive={setActive}/>} {active==='dataset'&&ds&&<DatasetView ds={ds} rerun={rerun} addRule={addRule} setActive={setActive} selectedIssue={selectedIssue} setSelectedIssue={setSelectedIssue}/>} {active==='incidents'&&<Incidents datasets={datasets} setActive={setActive} setSelected={setSelected}/>} {active==='rules'&&<Rules datasets={datasets} addRule={addRule}/>} {active==='lineage'&&<Lineage datasets={datasets}/>} {active==='activity'&&<ActivityView datasets={datasets}/>}<div className="footer">DataGuard AI · privacy-first data quality platform · AI receives metadata/evidence, not raw records, by default.</div></main></div>}
-function Landing(){return <div className="landing"><header className="landingNav"><div className="brand"><div className="brandmark">DG</div><span>DataGuard AI</span></div><a className="btn" href="/workspace">Open workspace</a></header><main><section className="hero"><div className="eyebrow">DATA RELIABILITY PLATFORM</div><h1>Know when your data is breaking before your business does.</h1><p>DataGuard AI profiles real datasets, enforces quality controls, detects anomalies, turns failures into incidents, and uses evidence-first AI investigation to help data teams find what changed.</p><div className="row"><a className="btn primary" href="/workspace">Try the demo workspace</a><span className="small muted">Works with the included sample data — no database or AI key required for demo mode.</span></div></section><section className="workflow"><div className="sectionHead"><div className="eyebrow">HOW IT WORKS</div><h2>From raw data to an actionable incident.</h2></div><div className="workflowGrid">{[['01','Ingest','Bring in CSV or JSON data and establish a reproducible run.'],['02','Profile','Measure schema, nulls, uniqueness, ranges and volume signals.'],['03','Detect','Apply automatic and custom quality rules with explainable scoring.'],['04','Investigate','Correlate evidence and generate an AI-assisted investigation without sending raw records by default.']].map(([n,t,d])=><div className="workflowCard" key={n}><span>{n}</span><b>{t}</b><p>{d}</p></div>)}</div></section><section className="landingGrid"><div><b>Quality control</b><p>Automatic checks, custom rules, historical runs and a quality timeline.</p></div><div><b>Incident management</b><p>Turn failures into traceable incidents with evidence, severity and investigation steps.</p></div><div><b>AI investigation</b><p>Hugging Face Inference Providers receive structured metadata rather than raw customer records.</p></div></section></main><footer className="landingFooter">Built for data engineers, ML engineers and data analysts.</footer></div>}
 
-function Metric({label,value}:{label:string,value:any}){return <div className="card"><div className="small muted">{label}</div><div className="metric">{value}</div></div>}
-function Datasets({datasets,setSelected,setActive}:{datasets:Dataset[];setSelected:(x:string)=>void;setActive:(x:string)=>void}){return <div className="card"><div className="between"><div><b>Data sources</b><div className="small muted">Each source maintains its own rules, runs and incident history.</div></div></div><table className="table" style={{marginTop:12}}><thead><tr><th>Name</th><th>Source</th><th>Rows</th><th>Quality</th><th>Issues</th><th/></tr></thead><tbody>{datasets.map(d=><tr key={d.id}><td><b>{d.name}</b></td><td>{d.sourceType}</td><td>{d.latest?.rowCount.toLocaleString()}</td><td><span className={`badge ${scoreClass(d.latest?.score??0)}`}>{d.latest?.score}%</span></td><td>{d.latest?.issues.length||0}</td><td><button className="btn" onClick={()=>{setSelected(d.id);setActive('dataset')}}>Open</button></td></tr>)}</tbody></table></div>}
-function DatasetView({ds,rerun,addRule,setActive,selectedIssue,setSelectedIssue}:{ds:Dataset;rerun:()=>void;addRule:()=>void;setActive:(x:string)=>void;selectedIssue:string|null;setSelectedIssue:(x:string|null)=>void}){const a=ds.latest!;return <><div className="grid grid4"><Metric label="Quality score" value={`${a.score}%`}/><Metric label="Rows" value={a.rowCount.toLocaleString()}/><Metric label="Columns" value={a.columnCount}/><Metric label="Failing checks" value={a.issues.length}/></div><div className="tabs" style={{marginTop:18}}><button className="tab active">Health</button><button className="tab" onClick={()=>setActive('rules')}>Rules ({ds.rules.length})</button><button className="tab">Runs ({ds.runs.length})</button></div><div className="grid grid2"><div className="card"><div className="between"><div><b>Quality incidents</b><div className="small muted">Evidence from the latest run</div></div><button className="btn" onClick={()=>setActive('incidents')}>Incident center</button></div><div className="list" style={{marginTop:13}}>{a.issues.map((i,idx)=><div className={`incident ${i.severity==='high'||i.severity==='critical'?'high':''}`} key={i.ruleId+idx}><div className="between"><b>{i.column}</b><span className={`badge ${i.severity==='low'?'ok':i.severity==='medium'?'warn':'danger'}`}>{i.severity}</span></div><div style={{margin:'7px 0'}}>{i.message}</div><div className="small muted">Failure rate: {(Number(i.evidence?.failureRate||0)*100).toFixed(1)}% · {i.failed.toLocaleString()} / {i.total.toLocaleString()} rows</div><button className="btn" style={{marginTop:9}} onClick={()=>setSelectedIssue(selectedIssue===i.ruleId?null:i.ruleId)}>{selectedIssue===i.ruleId?'Hide investigation':'Investigate with AI'}</button>{selectedIssue===i.ruleId&&<Investigation issue={i} analysis={a}/>}</div>)}{!a.issues.length&&<div className="notice"><CheckCircle2 size={16}/> No failures detected.</div>}</div></div><div className="card"><div className="between"><div><b>Schema & profiling</b><div className="small muted">Observed automatically from the latest ingestion</div></div><button className="btn" onClick={rerun}>Run again</button></div><table className="table" style={{marginTop:10}}><thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Unique</th><th>Range</th></tr></thead><tbody>{a.columns.map(c=><tr key={c.name}><td><b>{c.name}</b></td><td>{c.type}</td><td>{(c.nullRate*100).toFixed(1)}%</td><td>{(c.uniqueRate*100).toFixed(1)}%</td><td>{c.min!==undefined?`${c.min} – ${c.max}`:'—'}</td></tr>)}</tbody></table></div></div><div className="card" style={{marginTop:16}}><div className="between"><div><b>AI investigation engine</b><div className="small muted">Evidence-first analysis. Raw customer records are not required.</div></div><BrainCircuit size={18}/></div><div className="notice" style={{marginTop:12}}>The AI investigator receives structured incident metadata (rates, schema, volume and rule results). Configure Hugging Face Inference Providers for model-generated incident narratives. Demo mode remains fully usable without an AI key.</div></div></>}
-function Investigation({issue,analysis}:{issue:any;analysis:Analysis}){const[loading,setLoading]=useState(false);const[result,setResult]=useState<any>(null);const run=async()=>{setLoading(true);try{const r=await fetch('/api/investigate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({dataset:'current dataset',issue,analysis})});setResult(await r.json())}finally{setLoading(false)}};return <div className="notice" style={{marginTop:10}}><div className="between"><b>AI investigation</b><button className="btn" onClick={run} disabled={loading}>{loading?'Investigating…':'Run investigator'}</button></div>{!result&&<p style={{marginBottom:0}}>The investigator uses incident metadata, quality statistics, schema and run history. Raw records are not sent to the model.</p>}{result?.investigation&&<><p><b>{result.investigation.headline}</b></p><p>{result.investigation.cause}</p><div className="small muted"><b>Evidence</b><ul>{result.investigation.evidence?.map((x:string,i:number)=><li key={i}>{x}</li>)}</ul><b>Next steps</b><ul>{result.investigation.nextSteps?.map((x:string,i:number)=><li key={i}>{x}</li>)}</ul><b>Confidence:</b> {result.investigation.confidence}</div></>}</div>}
-function Incidents({datasets,setActive,setSelected}:{datasets:Dataset[];setActive:(x:string)=>void;setSelected:(x:string)=>void}){const inc=datasets.flatMap(d=>(d.latest?.issues||[]).filter(i=>i.severity==='high'||i.severity==='critical').map(i=>({d,i})));return <div className="grid">{inc.map((x,n)=><div className="card" key={n}><div className="between"><div><span className="badge danger">{x.i.severity}</span> <b style={{marginLeft:6}}>{x.d.name} / {x.i.column}</b></div><span className="small muted">INC-{String(n+1001)}</span></div><p>{x.i.message}</p><div className="small muted">Evidence: {(Number(x.i.evidence?.failureRate||0)*100).toFixed(1)}% failure rate · {x.i.failed.toLocaleString()} affected rows</div><button className="btn" style={{marginTop:10}} onClick={()=>{setSelected(x.d.id);setActive('dataset')}}>Open investigation</button></div>)}{!inc.length&&<div className="card"><CheckCircle2/> No high/critical incidents. Load the demo dataset to create realistic failures.</div>}</div>}
-function Rules({datasets,addRule}:{datasets:Dataset[];addRule:()=>void}){return <div className="card"><div className="between"><div><b>Quality rules</b><div className="small muted">Automatic suggestions plus team-defined controls.</div></div><button className="btn primary" onClick={addRule}><Plus size={14}/> Add rule</button></div><table className="table" style={{marginTop:12}}><thead><tr><th>Dataset</th><th>Column</th><th>Rule</th><th>Enabled</th></tr></thead><tbody>{datasets.flatMap(d=>d.rules.map(r=><tr key={r.id}><td>{d.name}</td><td>{r.column}</td><td>{r.type}</td><td><span className="badge ok">active</span></td></tr>))}</tbody></table></div>}
-function Lineage({datasets}:{datasets:Dataset[]}){return <div className="card"><div className="between"><div><b>Data lineage</b><div className="small muted">Source → ingestion → profiling → quality → incidents</div></div><GitBranch size={18}/></div><div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginTop:25}}>{['Source','Ingestion run','Profiler','Quality engine','Incident / AI'].map((x,i)=><div className="notice" key={x}><b>{i+1}. {x}</b><div className="small muted" style={{marginTop:7}}>{i===0?`${datasets.length} source(s)`:i===1?`${datasets.reduce((n,d)=>n+d.runs.length,0)} run(s)`:i===2?'Schema + statistics':i===3?'Rules + anomalies':'Evidence + investigation'}</div></div>)}</div></div>}
-function ActivityView({datasets}:{datasets:Dataset[]}){const runs=datasets.flatMap(d=>d.runs.map(r=>({name:d.name,time:r.runAt,score:r.score,issues:r.issues.length}))).slice(-20).reverse();return <div className="card"><b>Recent activity</b><table className="table" style={{marginTop:12}}><thead><tr><th>Dataset</th><th>Run</th><th>Quality</th><th>Issues</th></tr></thead><tbody>{runs.map((r,i)=><tr key={i}><td>{r.name}</td><td>{new Date(r.time).toLocaleString()}</td><td>{r.score}%</td><td>{r.issues}</td></tr>)}</tbody></table></div>}
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Database,
+  GitBranch,
+  Plus,
+  ShieldCheck,
+  Upload,
+  CheckCircle2,
+  BrainCircuit,
+  LineChart as LineChartIcon,
+} from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from 'recharts';
+import type { Analysis, Dataset, Rule } from '@/lib/types';
+
+const key = 'dataguard.datasets.v1';
+
+const sample = [
+  {
+    customer_id: 'C001',
+    email: 'a@example.com',
+    age: 32,
+    spend: 1200,
+    status: 'active',
+    created_at: '2026-09-14',
+  },
+  {
+    customer_id: 'C002',
+    email: 'b@example.com',
+    age: 41,
+    spend: 850,
+    status: 'active',
+    created_at: '2026-09-14',
+  },
+  {
+    customer_id: 'C003',
+    email: '',
+    age: 29,
+    spend: -20,
+    status: 'active',
+    created_at: '2026-09-14',
+  },
+  {
+    customer_id: 'C004',
+    email: 'd@example.com',
+    age: 145,
+    spend: 640,
+    status: 'paused',
+    created_at: '2026-09-14',
+  },
+  {
+    customer_id: 'C004',
+    email: 'e@example.com',
+    age: 38,
+    spend: 720,
+    status: 'active',
+    created_at: '2026-09-14',
+  },
+];
+
+function uid() {
+  return crypto.randomUUID();
+}
+
+function save(datasets: Dataset[]) {
+  localStorage.setItem(key, JSON.stringify(datasets));
+}
+
+function scoreClass(score: number) {
+  return score >= 90 ? 'ok' : score >= 70 ? 'warn' : 'danger';
+}
+
+export default function App({
+  mode = 'landing',
+}: {
+  mode?: 'landing' | 'workspace';
+}) {
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [active, setActive] = useState('overview');
+  const [selected, setSelected] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
+  const [selectedIssue, setSelectedIssue] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(key);
+
+      if (stored) {
+        setDatasets(JSON.parse(stored));
+      }
+    } catch {
+      // Ignore invalid local storage data.
+    }
+  }, []);
+
+  if (mode === 'landing') {
+    return <Landing />;
+  }
+
+  const ds = datasets.find((d) => d.id === selected) || datasets[0];
+
+  const stats = useMemo(() => {
+    const runs = datasets.flatMap((d) => d.runs);
+
+    return {
+      sources: datasets.length,
+      incidents: runs.reduce(
+        (count, run) =>
+          count +
+          run.issues.filter(
+            (issue) =>
+              issue.severity === 'high' || issue.severity === 'critical'
+          ).length,
+        0
+      ),
+      avg: runs.length
+        ? Math.round(
+            runs.reduce((total, run) => total + run.score, 0) / runs.length
+          )
+        : 0,
+    };
+  }, [datasets]);
+
+  function importRows(
+    name: string,
+    rows: Record<string, unknown>[],
+    sourceType = 'File'
+  ) {
+    const dataset: Dataset = {
+      id: uid(),
+      name,
+      sourceType,
+      createdAt: new Date().toISOString(),
+      runs: [],
+      rules: [],
+    };
+
+    fetch('/api/analyze', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        rows,
+        rules: [],
+      }),
+    })
+      .then((response) => response.json())
+      .then(({ analysis, suggestedRules, error }) => {
+        if (error) {
+          throw new Error(error);
+        }
+
+        dataset.rules = suggestedRules;
+        dataset.runs = [analysis];
+        dataset.latest = analysis;
+
+        const next = [...datasets, dataset];
+
+        setDatasets(next);
+        save(next);
+        setSelected(dataset.id);
+        setActive('dataset');
+
+        setNotice(
+          `Imported ${name}. ${analysis.rowCount.toLocaleString()} rows profiled.`
+        );
+      })
+      .catch((error) => {
+        setNotice(error instanceof Error ? error.message : 'Import failed.');
+      });
+  }
+
+  function loadSample() {
+    importRows('customers_sample.csv', sample);
+  }
+
+  function file(e: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFile = e.target.files?.[0];
+
+    if (!selectedFile) {
+      return;
+    }
+
+    const ext = selectedFile.name.split('.').pop()?.toLowerCase();
+
+    const reader = new FileReader();
+
+    reader.onload = async () => {
+      try {
+        let rows: Record<string, unknown>[] = [];
+
+        if (ext === 'json') {
+          const parsed = JSON.parse(String(reader.result));
+
+          if (!Array.isArray(parsed)) {
+            setNotice('JSON must contain an array of records.');
+            return;
+          }
+
+          rows = parsed;
+        } else if (ext === 'csv') {
+          const text = String(reader.result);
+
+          const lines = text
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+
+          if (!lines.length) {
+            setNotice('The CSV file is empty.');
+            return;
+          }
+
+          const headers = lines[0]
+            .split(',')
+            .map((header) => header.trim());
+
+          rows = lines.slice(1).map((line) => {
+            const values = line.split(',');
+
+            return Object.fromEntries(
+              headers.map((header, index) => [
+                header,
+                values[index]?.trim() ?? '',
+              ])
+            );
+          });
+        } else {
+          setNotice(
+            'For Excel, convert the sheet to CSV or JSON in this build environment. The XLSX dependency is included for the next ingestion adapter.'
+          );
+
+          return;
+        }
+
+        importRows(selectedFile.name, rows);
+      } catch {
+        setNotice(
+          'Could not parse that file. Check the format and try again.'
+        );
+      }
+    };
+
+    reader.readAsText(selectedFile);
+  }
+
+  function rerun() {
+    if (!ds?.latest) {
+      return;
+    }
+
+    const rows = sample;
+
+    fetch('/api/analyze', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        rows,
+        rules: ds.rules,
+      }),
+    })
+      .then((response) => response.json())
+      .then(({ analysis, error }) => {
+        if (error) {
+          throw new Error(error);
+        }
+
+        const updated = {
+          ...ds,
+          runs: [...ds.runs, analysis],
+          latest: analysis,
+        };
+
+        const next = datasets.map((dataset) =>
+          dataset.id === ds.id ? updated : dataset
+        );
+
+        setDatasets(next);
+        save(next);
+
+        setNotice(
+          'New ingestion run completed. Historical comparison updated.'
+        );
+      })
+      .catch((error) => {
+        setNotice(
+          error instanceof Error ? error.message : 'Run failed.'
+        );
+      });
+  }
+
+  function addRule() {
+    if (!ds) {
+      return;
+    }
+
+    const rule: Rule = {
+      id: uid(),
+      column: ds.latest?.columns[0]?.name || '',
+      type: 'not_null',
+      config: {},
+      enabled: true,
+    };
+
+    const updated = {
+      ...ds,
+      rules: [...ds.rules, rule],
+    };
+
+    const next = datasets.map((dataset) =>
+      dataset.id === ds.id ? updated : dataset
+    );
+
+    setDatasets(next);
+    save(next);
+  }
+
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brandmark">DG</div>
+          <span>DataGuard AI</span>
+        </div>
+
+        <nav className="nav">
+          {[
+            ['overview', 'Overview', BarChart3],
+            ['datasets', 'Datasets', Database],
+            ['incidents', 'Incidents', AlertTriangle],
+            ['lineage', 'Lineage', GitBranch],
+            ['rules', 'Quality rules', ShieldCheck],
+            ['activity', 'Activity', Activity],
+          ].map(([id, label, Icon]) => {
+            const NavIcon = Icon as React.ComponentType<{
+              size?: number;
+            }>;
+
+            return (
+              <button
+                key={id as string}
+                className={active === id ? 'active' : ''}
+                onClick={() => setActive(id as string)}
+              >
+                <NavIcon size={16} />
+                <span>{label as string}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="workspace">
+          <div className="small">WORKSPACE</div>
+          <b>Acme Data Team</b>
+          <div className="small muted">Local secure workspace</div>
+        </div>
+      </aside>
+
+      <main className="main">
+        <div className="top">
+          <div>
+            <div className="eyebrow">Data operations / production</div>
+
+            <h1 className="h1">
+              {active === 'overview'
+                ? 'Data quality control center'
+                : active === 'dataset'
+                  ? ds?.name || 'Dataset'
+                  : active === 'incidents'
+                    ? 'Incidents'
+                    : active === 'rules'
+                      ? 'Quality rules'
+                      : active === 'lineage'
+                        ? 'Data lineage'
+                        : 'Activity'}
+            </h1>
+          </div>
+
+          <div className="row">
+            <button className="btn" onClick={loadSample}>
+              <Plus size={15} />
+              Load demo dataset
+            </button>
+
+            <label className="btn primary row">
+              <Upload size={15} />
+              Import
+
+              <input
+                hidden
+                type="file"
+                accept=".csv,.json"
+                onChange={file}
+              />
+            </label>
+          </div>
+        </div>
+
+        {notice && (
+          <div className="notice" style={{ marginBottom: 16 }}>
+            {notice}
+          </div>
+        )}
+
+        {active === 'overview' && (
+          <Overview
+            stats={stats}
+            datasets={datasets}
+            setSelected={setSelected}
+            setActive={setActive}
+            loadSample={loadSample}
+          />
+        )}
+
+        {active === 'datasets' && (
+          <Datasets
+            datasets={datasets}
+            setSelected={setSelected}
+            setActive={setActive}
+          />
+        )}
+
+        {active === 'dataset' && ds && (
+          <DatasetView
+            ds={ds}
+            rerun={rerun}
+            addRule={addRule}
+            setActive={setActive}
+            selectedIssue={selectedIssue}
+            setSelectedIssue={setSelectedIssue}
+          />
+        )}
+
+        {active === 'incidents' && (
+          <Incidents
+            datasets={datasets}
+            setActive={setActive}
+            setSelected={setSelected}
+          />
+        )}
+
+        {active === 'rules' && (
+          <Rules datasets={datasets} addRule={addRule} />
+        )}
+
+        {active === 'lineage' && <Lineage datasets={datasets} />}
+
+        {active === 'activity' && (
+          <ActivityView datasets={datasets} />
+        )}
+
+        <div className="footer">
+          DataGuard AI · privacy-first data quality platform · AI receives
+          metadata/evidence, not raw records, by default.
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function Landing() {
+  return (
+    <div className="landing">
+      <header className="landingNav">
+        <div className="brand">
+          <div className="brandmark">DG</div>
+          <span>DataGuard AI</span>
+        </div>
+
+        <a className="btn" href="/workspace">
+          Open workspace
+        </a>
+      </header>
+
+      <main>
+        <section className="hero">
+          <div className="eyebrow">DATA RELIABILITY PLATFORM</div>
+
+          <h1>
+            Know when your data is breaking before your business does.
+          </h1>
+
+          <p>
+            DataGuard AI profiles real datasets, enforces quality controls,
+            detects anomalies, turns failures into incidents, and uses
+            evidence-first AI investigation to help data teams find what
+            changed.
+          </p>
+
+          <div className="row">
+            <a className="btn primary" href="/workspace">
+              Try the demo workspace
+            </a>
+
+            <span className="small muted">
+              Works with the included sample data — no database or AI key
+              required for demo mode.
+            </span>
+          </div>
+        </section>
+
+        <section className="workflow">
+          <div className="sectionHead">
+            <div className="eyebrow">HOW IT WORKS</div>
+
+            <h2>From raw data to an actionable incident.</h2>
+          </div>
+
+          <div className="workflowGrid">
+            {[
+              [
+                '01',
+                'Ingest',
+                'Bring in CSV or JSON data and establish a reproducible run.',
+              ],
+              [
+                '02',
+                'Profile',
+                'Measure schema, nulls, uniqueness, ranges and volume signals.',
+              ],
+              [
+                '03',
+                'Detect',
+                'Apply automatic and custom quality rules with explainable scoring.',
+              ],
+              [
+                '04',
+                'Investigate',
+                'Correlate evidence and generate an AI-assisted investigation without sending raw records by default.',
+              ],
+            ].map(([number, title, description]) => (
+              <div className="workflowCard" key={number}>
+                <span>{number}</span>
+                <b>{title}</b>
+                <p>{description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="landingGrid">
+          <div>
+            <b>Quality control</b>
+            <p>
+              Automatic checks, custom rules, historical runs and a quality
+              timeline.
+            </p>
+          </div>
+
+          <div>
+            <b>Incident management</b>
+            <p>
+              Turn failures into traceable incidents with evidence, severity
+              and investigation steps.
+            </p>
+          </div>
+
+          <div>
+            <b>AI investigation</b>
+            <p>
+              Hugging Face Inference Providers receive structured metadata
+              rather than raw customer records.
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <footer className="landingFooter">
+        Built for data engineers, ML engineers and data analysts.
+      </footer>
+    </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="card">
+      <div className="small muted">{label}</div>
+      <div className="metric">{value}</div>
+    </div>
+  );
+}
+
+function Overview({
+  stats,
+  datasets,
+  setSelected,
+  setActive,
+  loadSample,
+}: {
+  stats: {
+    sources: number;
+    incidents: number;
+    avg: number;
+  };
+  datasets: Dataset[];
+  setSelected: (id: string) => void;
+  setActive: (view: string) => void;
+  loadSample: () => void;
+}) {
+  const recentRuns = datasets
+    .flatMap((dataset) =>
+      dataset.runs.map((run) => ({
+        dataset: dataset.name,
+        time: run.runAt,
+        score: run.score,
+      }))
+    )
+    .slice(-8);
+
+  return (
+    <>
+      <div className="grid grid3">
+        <Metric label="Datasets" value={stats.sources} />
+
+        <Metric
+          label="High / critical incidents"
+          value={stats.incidents}
+        />
+
+        <Metric
+          label="Average quality"
+          value={`${stats.avg}%`}
+        />
+      </div>
+
+      <div className="grid grid2" style={{ marginTop: 16 }}>
+        <div className="card">
+          <div className="between">
+            <div>
+              <b>Quality overview</b>
+
+              <div className="small muted">
+                Current quality across your monitored datasets.
+              </div>
+            </div>
+
+            {!datasets.length && (
+              <button className="btn primary" onClick={loadSample}>
+                <Plus size={14} />
+                Load demo
+              </button>
+            )}
+          </div>
+
+          <div className="list" style={{ marginTop: 14 }}>
+            {datasets.map((dataset) => (
+              <div className="between" key={dataset.id}>
+                <div>
+                  <b>{dataset.name}</b>
+
+                  <div className="small muted">
+                    {dataset.latest?.rowCount.toLocaleString() ?? 0}{' '}
+                    rows · {dataset.latest?.issues.length ?? 0} issues
+                  </div>
+                </div>
+
+                <div className="row">
+                  <span
+                    className={`badge ${scoreClass(
+                      dataset.latest?.score ?? 0
+                    )}`}
+                  >
+                    {dataset.latest?.score ?? 0}%
+                  </span>
+
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setSelected(dataset.id);
+                      setActive('dataset');
+                    }}
+                  >
+                    Open
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {!datasets.length && (
+              <div className="notice">
+                No datasets yet. Load the included demo dataset to see
+                DataGuard&apos;s profiling, quality rules and incident
+                workflow.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="between">
+            <div>
+              <b>Quality trend</b>
+
+              <div className="small muted">
+                Recent ingestion run scores.
+              </div>
+            </div>
+
+            <LineChartIcon size={18} />
+          </div>
+
+          {recentRuns.length ? (
+            <div
+              style={{
+                width: '100%',
+                height: 230,
+                marginTop: 15,
+              }}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={recentRuns}>
+                  <CartesianGrid strokeDasharray="3 3" />
+
+                  <XAxis dataKey="dataset" hide />
+
+                  <YAxis domain={[0, 100]} />
+
+                  <Tooltip />
+
+                  <Line
+                    type="monotone"
+                    dataKey="score"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    dot
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="notice" style={{ marginTop: 15 }}>
+              No ingestion runs yet.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="between">
+          <div>
+            <b>DataGuard workflow</b>
+
+            <div className="small muted">
+              Monitor → detect → investigate → act
+            </div>
+          </div>
+
+          <button
+            className="btn"
+            onClick={() => setActive('incidents')}
+          >
+            View incidents
+          </button>
+        </div>
+
+        <div className="workflowGrid" style={{ marginTop: 15 }}>
+          <div className="workflowCard">
+            <span>01</span>
+            <b>Profile</b>
+            <p>
+              Schema, nulls, uniqueness, ranges and volume signals.
+            </p>
+          </div>
+
+          <div className="workflowCard">
+            <span>02</span>
+            <b>Detect</b>
+            <p>Quality rules identify failures and anomalies.</p>
+          </div>
+
+          <div className="workflowCard">
+            <span>03</span>
+            <b>Investigate</b>
+            <p>Evidence-first AI explains important incidents.</p>
+          </div>
+
+          <div className="workflowCard">
+            <span>04</span>
+            <b>Act</b>
+            <p>
+              Use incidents and historical runs to guide remediation.
+            </p>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Datasets({
+  datasets,
+  setSelected,
+  setActive,
+}: {
+  datasets: Dataset[];
+  setSelected: (id: string) => void;
+  setActive: (view: string) => void;
+}) {
+  return (
+    <div className="card">
+      <div className="between">
+        <div>
+          <b>Data sources</b>
+
+          <div className="small muted">
+            Each source maintains its own rules, runs and incident history.
+          </div>
+        </div>
+      </div>
+
+      <table className="table" style={{ marginTop: 12 }}>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Source</th>
+            <th>Rows</th>
+            <th>Quality</th>
+            <th>Issues</th>
+            <th />
+          </tr>
+        </thead>
+
+        <tbody>
+          {datasets.map((dataset) => (
+            <tr key={dataset.id}>
+              <td>
+                <b>{dataset.name}</b>
+              </td>
+
+              <td>{dataset.sourceType}</td>
+
+              <td>
+                {dataset.latest?.rowCount?.toLocaleString() ?? 0}
+              </td>
+
+              <td>
+                <span
+                  className={`badge ${scoreClass(
+                    dataset.latest?.score ?? 0
+                  )}`}
+                >
+                  {dataset.latest?.score ?? 0}%
+                </span>
+              </td>
+
+              <td>{dataset.latest?.issues.length || 0}</td>
+
+              <td>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setSelected(dataset.id);
+                    setActive('dataset');
+                  }}
+                >
+                  Open
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DatasetView({
+  ds,
+  rerun,
+  addRule,
+  setActive,
+  selectedIssue,
+  setSelectedIssue,
+}: {
+  ds: Dataset;
+  rerun: () => void;
+  addRule: () => void;
+  setActive: (view: string) => void;
+  selectedIssue: string | null;
+  setSelectedIssue: (id: string | null) => void;
+}) {
+  const a = ds.latest!;
+
+  return (
+    <>
+      <div className="grid grid4">
+        <Metric label="Quality score" value={`${a.score}%`} />
+
+        <Metric
+          label="Rows"
+          value={a.rowCount.toLocaleString()}
+        />
+
+        <Metric label="Columns" value={a.columnCount} />
+
+        <Metric
+          label="Failing checks"
+          value={a.issues.length}
+        />
+      </div>
+
+      <div className="tabs" style={{ marginTop: 18 }}>
+        <button className="tab active">Health</button>
+
+        <button className="tab" onClick={() => setActive('rules')}>
+          Rules ({ds.rules.length})
+        </button>
+
+        <button className="tab">
+          Runs ({ds.runs.length})
+        </button>
+      </div>
+
+      <div className="grid grid2">
+        <div className="card">
+          <div className="between">
+            <div>
+              <b>Quality incidents</b>
+
+              <div className="small muted">
+                Evidence from the latest run
+              </div>
+            </div>
+
+            <button
+              className="btn"
+              onClick={() => setActive('incidents')}
+            >
+              Incident center
+            </button>
+          </div>
+
+          <div className="list" style={{ marginTop: 13 }}>
+            {a.issues.map((issue, index) => (
+              <div
+                className={`incident ${
+                  issue.severity === 'high' ||
+                  issue.severity === 'critical'
+                    ? 'high'
+                    : ''
+                }`}
+                key={issue.ruleId + index}
+              >
+                <div className="between">
+                  <b>{issue.column}</b>
+
+                  <span
+                    className={`badge ${
+                      issue.severity === 'low'
+                        ? 'ok'
+                        : issue.severity === 'medium'
+                          ? 'warn'
+                          : 'danger'
+                    }`}
+                  >
+                    {issue.severity}
+                  </span>
+                </div>
+
+                <div style={{ margin: '7px 0' }}>
+                  {issue.message}
+                </div>
+
+                <div className="small muted">
+                  Failure rate:{' '}
+                  {(
+                    Number(issue.evidence?.failureRate || 0) * 100
+                  ).toFixed(1)}
+                  % · {issue.failed.toLocaleString()} /{' '}
+                  {issue.total.toLocaleString()} rows
+                </div>
+
+                <button
+                  className="btn"
+                  style={{ marginTop: 9 }}
+                  onClick={() =>
+                    setSelectedIssue(
+                      selectedIssue === issue.ruleId
+                        ? null
+                        : issue.ruleId
+                    )
+                  }
+                >
+                  {selectedIssue === issue.ruleId
+                    ? 'Hide investigation'
+                    : 'Investigate with AI'}
+                </button>
+
+                {selectedIssue === issue.ruleId && (
+                  <Investigation issue={issue} analysis={a} />
+                )}
+              </div>
+            ))}
+
+            {!a.issues.length && (
+              <div className="notice">
+                <CheckCircle2 size={16} /> No failures detected.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="between">
+            <div>
+              <b>Schema & profiling</b>
+
+              <div className="small muted">
+                Observed automatically from the latest ingestion
+              </div>
+            </div>
+
+            <button className="btn" onClick={rerun}>
+              Run again
+            </button>
+          </div>
+
+          <table
+            className="table"
+            style={{ marginTop: 10 }}
+          >
+            <thead>
+              <tr>
+                <th>Column</th>
+                <th>Type</th>
+                <th>Null</th>
+                <th>Unique</th>
+                <th>Range</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {a.columns.map((column) => (
+                <tr key={column.name}>
+                  <td>
+                    <b>{column.name}</b>
+                  </td>
+
+                  <td>{column.type}</td>
+
+                  <td>
+                    {(column.nullRate * 100).toFixed(1)}%
+                  </td>
+
+                  <td>
+                    {(column.uniqueRate * 100).toFixed(1)}%
+                  </td>
+
+                  <td>
+                    {column.min !== undefined
+                      ? `${column.min} – ${column.max}`
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="between">
+          <div>
+            <b>AI investigation engine</b>
+
+            <div className="small muted">
+              Evidence-first analysis. Raw customer records are not
+              required.
+            </div>
+          </div>
+
+          <BrainCircuit size={18} />
+        </div>
+
+        <div
+          className="notice"
+          style={{ marginTop: 12 }}
+        >
+          The AI investigator receives structured incident metadata
+          (rates, schema, volume and rule results). Configure Hugging
+          Face Inference Providers for model-generated incident
+          narratives. Demo mode remains fully usable without an AI key.
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Investigation({
+  issue,
+  analysis,
+}: {
+  issue: any;
+  analysis: Analysis;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+
+  const run = async () => {
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/investigate', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          dataset: 'current dataset',
+          issue,
+          analysis,
+        }),
+      });
+
+      setResult(await response.json());
+    } catch (error) {
+      setResult({
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Investigation failed.',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="notice" style={{ marginTop: 10 }}>
+      <div className="between">
+        <b>AI investigation</b>
+
+        <button
+          className="btn"
+          onClick={run}
+          disabled={loading}
+        >
+          {loading ? 'Investigating…' : 'Run investigator'}
+        </button>
+      </div>
+
+      {!result && (
+        <p style={{ marginBottom: 0 }}>
+          The investigator uses incident metadata, quality statistics,
+          schema and run history. Raw records are not sent to the model.
+        </p>
+      )}
+
+      {result?.error && (
+        <p style={{ marginBottom: 0 }}>
+          {result.error}
+        </p>
+      )}
+
+      {result?.investigation && (
+        <>
+          <p>
+            <b>{result.investigation.headline}</b>
+          </p>
+
+          <p>{result.investigation.cause}</p>
+
+          <div className="small muted">
+            <b>Evidence</b>
+
+            <ul>
+              {result.investigation.evidence?.map(
+                (item: string, index: number) => (
+                  <li key={index}>{item}</li>
+                )
+              )}
+            </ul>
+
+            <b>Next steps</b>
+
+            <ul>
+              {result.investigation.nextSteps?.map(
+                (item: string, index: number) => (
+                  <li key={index}>{item}</li>
+                )
+              )}
+            </ul>
+
+            <b>Confidence:</b>{' '}
+            {result.investigation.confidence}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Incidents({
+  datasets,
+  setActive,
+  setSelected,
+}: {
+  datasets: Dataset[];
+  setActive: (view: string) => void;
+  setSelected: (id: string) => void;
+}) {
+  const incidents = datasets.flatMap((dataset) =>
+    (dataset.latest?.issues || [])
+      .filter(
+        (issue) =>
+          issue.severity === 'high' ||
+          issue.severity === 'critical'
+      )
+      .map((issue) => ({
+        dataset,
+        issue,
+      }))
+  );
+
+  return (
+    <div className="grid">
+      {incidents.map((item, index) => (
+        <div className="card" key={index}>
+          <div className="between">
+            <div>
+              <span className="badge danger">
+                {item.issue.severity}
+              </span>
+
+              <b style={{ marginLeft: 6 }}>
+                {item.dataset.name} / {item.issue.column}
+              </b>
+            </div>
+
+            <span className="small muted">
+              INC-{String(index + 1001)}
+            </span>
+          </div>
+
+          <p>{item.issue.message}</p>
+
+          <div className="small muted">
+            Evidence:{' '}
+            {(
+              Number(item.issue.evidence?.failureRate || 0) * 100
+            ).toFixed(1)}
+            % failure rate ·{' '}
+            {item.issue.failed.toLocaleString()} affected rows
+          </div>
+
+          <button
+            className="btn"
+            style={{ marginTop: 10 }}
+            onClick={() => {
+              setSelected(item.dataset.id);
+              setActive('dataset');
+            }}
+          >
+            Open investigation
+          </button>
+        </div>
+      ))}
+
+      {!incidents.length && (
+        <div className="card">
+          <CheckCircle2 /> No high/critical incidents. Load the demo
+          dataset to create realistic failures.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Rules({
+  datasets,
+  addRule,
+}: {
+  datasets: Dataset[];
+  addRule: () => void;
+}) {
+  return (
+    <div className="card">
+      <div className="between">
+        <div>
+          <b>Quality rules</b>
+
+          <div className="small muted">
+            Automatic suggestions plus team-defined controls.
+          </div>
+        </div>
+
+        <button className="btn primary" onClick={addRule}>
+          <Plus size={14} /> Add rule
+        </button>
+      </div>
+
+      <table className="table" style={{ marginTop: 12 }}>
+        <thead>
+          <tr>
+            <th>Dataset</th>
+            <th>Column</th>
+            <th>Rule</th>
+            <th>Enabled</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {datasets.flatMap((dataset) =>
+            dataset.rules.map((rule) => (
+              <tr key={rule.id}>
+                <td>{dataset.name}</td>
+                <td>{rule.column}</td>
+                <td>{rule.type}</td>
+                <td>
+                  <span className="badge ok">active</span>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Lineage({
+  datasets,
+}: {
+  datasets: Dataset[];
+}) {
+  return (
+    <div className="card">
+      <div className="between">
+        <div>
+          <b>Data lineage</b>
+
+          <div className="small muted">
+            Source → ingestion → profiling → quality → incidents
+          </div>
+        </div>
+
+        <GitBranch size={18} />
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(5, 1fr)',
+          gap: 10,
+          marginTop: 25,
+        }}
+      >
+        {[
+          'Source',
+          'Ingestion run',
+          'Profiler',
+          'Quality engine',
+          'Incident / AI',
+        ].map((item, index) => (
+          <div className="notice" key={item}>
+            <b>
+              {index + 1}. {item}
+            </b>
+
+            <div
+              className="small muted"
+              style={{ marginTop: 7 }}
+            >
+              {index === 0
+                ? `${datasets.length} source(s)`
+                : index === 1
+                  ? `${datasets.reduce(
+                      (count, dataset) => count + dataset.runs.length,
+                      0
+                    )} run(s)`
+                  : index === 2
+                    ? 'Schema + statistics'
+                    : index === 3
+                      ? 'Rules + anomalies'
+                      : 'Evidence + investigation'}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActivityView({
+  datasets,
+}: {
+  datasets: Dataset[];
+}) {
+  const runs = datasets
+    .flatMap((dataset) =>
+      dataset.runs.map((run) => ({
+        name: dataset.name,
+        time: run.runAt,
+        score: run.score,
+        issues: run.issues.length,
+      }))
+    )
+    .slice(-20)
+    .reverse();
+
+  return (
+    <div className="card">
+      <b>Recent activity</b>
+
+      <table className="table" style={{ marginTop: 12 }}>
+        <thead>
+          <tr>
+            <th>Dataset</th>
+            <th>Run</th>
+            <th>Quality</th>
+            <th>Issues</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {runs.map((run, index) => (
+            <tr key={index}>
+              <td>{run.name}</td>
+
+              <td>
+                {new Date(run.time).toLocaleString()}
+              </td>
+
+              <td>{run.score}%</td>
+
+              <td>{run.issues}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
