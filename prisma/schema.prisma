@@ -7,12 +7,51 @@ datasource db {
   provider = "postgresql"
 }
 
-enum MemberRole { OWNER ADMIN ENGINEER ANALYST VIEWER }
-enum SourceType { FILE API POSTGRES MYSQL OTHER }
-enum RunStatus { RUNNING PASSED FAILED }
-enum Severity { LOW MEDIUM HIGH CRITICAL }
-enum IncidentStatus { OPEN ACKNOWLEDGED INVESTIGATING RESOLVED REOPENED }
-enum RuleType { NOT_NULL UNIQUE RANGE REGEX ALLOWED_VALUES CUSTOM }
+enum MemberRole {
+  OWNER
+  ADMIN
+  ENGINEER
+  ANALYST
+  VIEWER
+}
+
+enum SourceType {
+  FILE
+  API
+  POSTGRES
+  MYSQL
+  OTHER
+}
+
+enum RunStatus {
+  RUNNING
+  PASSED
+  FAILED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+  REOPENED
+}
+
+enum RuleType {
+  NOT_NULL
+  UNIQUE
+  RANGE
+  REGEX
+  ALLOWED_VALUES
+  CUSTOM
+}
 
 model Organization {
   id        String      @id @default(cuid())
@@ -22,26 +61,28 @@ model Organization {
 }
 
 model Workspace {
-  id           String       @id @default(cuid())
+  id             String          @id @default(cuid())
   organizationId String
-  name         String
-  createdAt    DateTime     @default(now())
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  members      WorkspaceMember[]
-  sources      DataSource[]
-  datasets     Dataset[]
-  auditLogs    AuditLog[]
+  name           String
+  createdAt      DateTime        @default(now())
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        WorkspaceMember[]
+  sources        DataSource[]
+  datasets       Dataset[]
+  auditLogs      AuditLog[]
+
   @@index([organizationId])
 }
 
 model WorkspaceMember {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   workspaceId String
   email       String
   name        String?
   role        MemberRole @default(ANALYST)
-  createdAt   DateTime @default(now())
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@unique([workspaceId, email])
 }
 
@@ -54,6 +95,7 @@ model DataSource {
   createdAt   DateTime   @default(now())
   workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   datasets    Dataset[]
+
   @@index([workspaceId])
 }
 
@@ -70,87 +112,93 @@ model Dataset {
   rules       QualityRule[]
   runs        IngestionRun[]
   incidents   Incident[]
+
   @@index([workspaceId])
   @@index([sourceId])
 }
 
 model QualityRule {
-  id          String   @id @default(cuid())
+  id          String         @id @default(cuid())
   datasetId   String
   column      String
   type        RuleType
   config      Json?
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  dataset     Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  enabled     Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  dataset     Dataset        @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   results     QualityResult[]
   incidents   Incident[]
+
   @@index([datasetId])
 }
 
 model IngestionRun {
-  id             String      @id @default(cuid())
-  datasetId      String
-  startedAt      DateTime    @default(now())
-  finishedAt     DateTime?
-  status         RunStatus   @default(RUNNING)
-  rowCount       Int         @default(0)
-  columnCount    Int         @default(0)
-  qualityScore   Float?
-  schemaHash     String?
-  volumeDelta    Float?
-  summary        Json?
-  dataset        Dataset     @relation(fields: [datasetId], references: [id], onDelete: Cascade)
-  results        QualityResult[]
-  incidents      Incident[]
+  id           String          @id @default(cuid())
+  datasetId    String
+  startedAt    DateTime        @default(now())
+  finishedAt   DateTime?
+  status       RunStatus       @default(RUNNING)
+  rowCount     Int             @default(0)
+  columnCount  Int             @default(0)
+  qualityScore Float?
+  schemaHash   String?
+  volumeDelta  Float?
+  summary      Json?
+  dataset      Dataset         @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  results      QualityResult[]
+  incidents    Incident[]
+
   @@index([datasetId, startedAt])
 }
 
 model QualityResult {
-  id          String      @id @default(cuid())
-  runId       String
-  ruleId      String
-  passed      Boolean
-  failed      Int         @default(0)
-  total       Int         @default(0)
-  evidence    Json?
-  createdAt   DateTime    @default(now())
-  run         IngestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-  rule        QualityRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  id        String        @id @default(cuid())
+  runId     String
+  ruleId    String
+  passed    Boolean
+  failed    Int           @default(0)
+  total     Int           @default(0)
+  evidence  Json?
+  createdAt DateTime      @default(now())
+  run       IngestionRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  rule      QualityRule   @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
   @@index([runId])
 }
 
 model Incident {
-  id           String         @id @default(cuid())
-  datasetId    String
-  runId        String
-  ruleId       String?
-  severity     Severity
-  status       IncidentStatus @default(OPEN)
-  title        String
-  message      String
-  evidence     Json?
-  openedAt     DateTime       @default(now())
-  resolvedAt   DateTime?
-  dataset      Dataset        @relation(fields: [datasetId], references: [id], onDelete: Cascade)
-  run          IngestionRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
-  rule         QualityRule?   @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  id             String            @id @default(cuid())
+  datasetId      String
+  runId          String
+  ruleId         String?
+  severity       Severity
+  status         IncidentStatus    @default(OPEN)
+  title          String
+  message        String
+  evidence       Json?
+  openedAt       DateTime          @default(now())
+  resolvedAt     DateTime?
+  dataset        Dataset           @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  run            IngestionRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  rule           QualityRule?      @relation(fields: [ruleId], references: [id], onDelete: SetNull)
   investigations AIInvestigation[]
+
   @@index([datasetId, status])
 }
 
 model AIInvestigation {
-  id           String   @id @default(cuid())
-  incidentId   String
-  provider     String
-  model        String?
-  headline     String?
-  cause        String?
-  evidence     Json?
-  nextSteps    Json?
-  confidence   String?
-  createdAt    DateTime @default(now())
-  incident     Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  incidentId String
+  provider   String
+  model      String?
+  headline   String?
+  cause      String?
+  evidence   Json?
+  nextSteps  Json?
+  confidence String?
+  createdAt  DateTime @default(now())
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
   @@index([incidentId, createdAt])
 }
 
@@ -164,5 +212,6 @@ model AuditLog {
   metadata    Json?
   createdAt   DateTime @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   @@index([workspaceId, createdAt])
 }
